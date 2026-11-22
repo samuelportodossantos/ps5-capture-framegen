@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# ps5 — captura do PS5 (ou outro console) numa janela, com frame gen (lsfg-vk) e áudio.
+#
+#   ps5            liga (se já estiver ligada, desliga)
+#   ps5 off        desliga
+#   ps5 sem-fg     liga sem frame gen (para comparar)
+#   ps5 fg N       muda o frame gen na hora: 2, 3 ou 4 (multiplica os quadros únicos do jogo)
+#   ps5 status     mostra o que está rodando
+#
+# Na janela: q fecha | 3 tira quadros duplicados (padrão) | 6 mostra tudo que a placa entrega
+#
+# Configuração: ~/.config/ps5-capture/config  (placa, formato, áudio)
+# Frame gen:    ~/.config/lsfg-vk/conf.toml   (perfil "ps5-capture")
+# Janela:       regra do KDE "ps5-capture" em ~/.config/kwinrulesrc (posição/tamanho, sem borda, acima dos painéis)
+
+# ---------- padrões (sobrescreva em ~/.config/ps5-capture/config) ----------
+VIDEO_MATCH="usb-MACROSILICON_*-video-index0"  # glob em /dev/v4l/by-id/ (ls /dev/v4l/by-id/)
+AUDIO_MATCH="alsa_input.usb-MACROSILICON"      # trecho do nome da fonte (pactl list sources short)
+VIDEO_SIZE="1920x1080"
+VIDEO_FPS="60"
+VIDEO_FORMAT="yuyv422"                         # yuyv422 (USB 3, sem compressão) ou mjpeg
+AUDIO_LATENCY_MS="20"
+DEDUP="1"                                      # 1 = tira os quadros repetidos (jogo a 30 numa saída de 60)
+# --------------------------------------------------------------------------
+
+CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ps5-capture"
+[ -f "$CFG_DIR/config" ] && . "$CFG_DIR/config"
+LSFG_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/lsfg-vk/conf.toml"
+APP_ID="ps5-capture"
+
+mpv_pid() {
+  for p in $(pgrep -x mpv); do
+    tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "--wayland-app-id=$APP_ID" && { echo "$p"; return; }
+  done
+}
+
+multiplicador() { awk -F'[= ]+' '/^multiplier/ {print $2; exit}' "$LSFG_CONF" 2>/dev/null; }
+
+desligar() {
+  local p; p="$(mpv_pid)"
+  [ -z "$p" ] && { echo "captura já está desligada"; return 0; }
+  # Encerra à força: com o lsfg-vk carregado o mpv às vezes trava ao fechar (visto com driver NVIDIA).
+  kill -9 "$p" 2>/dev/null
+  echo "captura desligada"
+}
+
+status() {
+  local p; p="$(mpv_pid)"
+  if [ -z "$p" ]; then echo "captura: desligada"; return; fi
+  local fg="ligado (x$(multiplicador))"
+  tr '\0' '\n' < "/proc/$p/environ" | grep -q '^DISABLE_LSFGVK=1' && fg="desligado"
+  echo "captura: LIGADA (pid $p) | frame gen: $fg | áudio: $(pgrep -xc pw-loopback) loopback"
+}
+
+ligar() {
+  [ -n "$(mpv_pid)" ] && { echo "captura já está ligada (use: ps5 off)"; return 0; }
+
+  # Acha a placa pelo nome: o número /dev/videoN muda entre reinícios.
+  local dev; dev="$(ls /dev/v4l/by-id/$VIDEO_MATCH 2>/dev/null | head -1)"
+  [ -z "$dev" ] && { echo "placa de captura não encontrada (VIDEO_MATCH=$VIDEO_MATCH). Conectada numa porta USB 3? Veja: ls /dev/v4l/by-id/" >&2; return 1; }
+
+  if [ "$1" = "sem-fg" ]; then export DISABLE_LSFGVK=1; else export LSFGVK_PROFILE="$APP_ID"; fi
+
+  local vf=""; [ "$DEDUP" = "1" ] && vf="--vf=lavfi=[mpdecimate]"
+  local src; src="$(pactl list sources short 2>/dev/null | awk -v m="$AUDIO_MATCH" 'index($2, m) == 1 {print $2; exit}')"
+  [ -z "$src" ] && echo "aviso: fonte de áudio não encontrada (AUDIO_MATCH=$AUDIO_MATCH), ligando sem som" >&2
+
+  # Roda desacoplado do terminal: fechar o terminal não fecha a captura.
+  setsid bash -c '
+    dev=$1 src=$2 vf=$3 app=$4 size=$5 fps=$6 fmt=$7 lat=$8 cfg=$9
+    loop=""
+    # Áudio fora do mpv: ele roda --untimed (mostra o quadro assim que chega) e não sincroniza som.
+    if [ -n "$src" ]; then pw-loopback -n "$app-audio" -C "$src" -l "$lat" & loop=$!; fi
+    mpv "av://v4l2:$dev" \
+      --demuxer-lavf-o=video_size=$size,framerate=$fps,input_format=$fmt \
+      --profile=low-latency \
+      --untimed --cache=no --demuxer-readahead-secs=0 --demuxer-max-bytes=8MiB \
+      --demuxer-lavf-o-add=fflags=+nobuffer \
+      $vf \
+      --input-ipc-server="${XDG_RUNTIME_DIR:-/tmp}/$app.sock" \
+      --vo=gpu-next --gpu-api=vulkan \
+      --wayland-app-id="$app" --title="Captura PS5" --border=no \
+      --no-osc --osd-level=1 --osd-font-size=40 \
+      --input-conf="$cfg/input.conf"
+    [ -n "$loop" ] && kill "$loop" 2>/dev/null
+  ' _ "$dev" "$src" "$vf" "$APP_ID" "$VIDEO_SIZE" "$VIDEO_FPS" "$VIDEO_FORMAT" "$AUDIO_LATENCY_MS" "$CFG_DIR" \
+    >/dev/null 2>&1 < /dev/null &
+
+  for _ in $(seq 1 20); do sleep 0.25; [ -n "$(mpv_pid)" ] && break; done
+  if [ -z "$(mpv_pid)" ]; then echo "a captura não abriu — rode 'ps5 status' ou tente de novo" >&2; return 1; fi
+  if [ "$1" = "sem-fg" ]; then echo "captura ligada SEM frame gen"; else echo "captura ligada (frame gen x$(multiplicador))"; fi
+}
+
+mudar_fg() {
+  case "$1" in 2|3|4) ;; *) echo "uso: ps5 fg 2|3|4" >&2; return 1;; esac
+  [ -f "$LSFG_CONF" ] || { echo "não achei $LSFG_CONF — rode o install.sh" >&2; return 1; }
+  sed -i "s/^multiplier = .*/multiplier = $1/" "$LSFG_CONF"
+  echo "frame gen: x$1 (com o jogo a 30 fps: $((30*$1)) fps na tela)"
+}
+
+case "${1:-}" in
+  "")              if [ -n "$(mpv_pid)" ]; then desligar; else ligar; fi ;;
+  on|ligar)        ligar ;;
+  off|desligar)    desligar ;;
+  sem-fg)          ligar sem-fg ;;
+  fg)              mudar_fg "$2" ;;
+  status)          status ;;
+  -h|--help|help)  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)               echo "comando desconhecido: $1 (veja: ps5 help)" >&2; exit 1 ;;
+esac

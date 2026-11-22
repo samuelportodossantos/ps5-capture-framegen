@@ -1,0 +1,5 @@
+# binários e DLLs de terceiros nunca entram aqui (licença do lsfg-vk / Lossless Scaling pago)
+*.dll
+*.so
+*.tar.xz
+*.bak.*

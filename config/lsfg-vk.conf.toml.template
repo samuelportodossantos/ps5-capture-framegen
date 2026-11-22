@@ -1,0 +1,16 @@
+version = 2
+
+[global]
+# Caminho do lsfg-vk.dll do Lossless Scaling (branch "lsfg-vk" na Steam). O install.sh preenche.
+dll = "@DLL@"
+
+[[profile]]
+# Ativado só pelo comando ps5 (variável LSFGVK_PROFILE), não por nome de processo,
+# para não ligar frame gen em todo mpv do sistema.
+name = "ps5-capture"
+active_in = []
+# Quadros únicos do jogo x multiplier. Jogo a 30 fps: 4 = 120, 2 = 60. Mude com: ps5 fg N
+multiplier = 4
+flow_scale = 1.0
+performance_mode = false
+pacing = "vsync"

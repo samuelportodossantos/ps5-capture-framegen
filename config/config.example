@@ -1,0 +1,18 @@
+# ~/.config/ps5-capture/config — lido pelo comando ps5 (sintaxe de shell).
+# Descomente e ajuste o que for diferente na sua máquina.
+
+# Placa de captura: glob dentro de /dev/v4l/by-id/  (veja com: ls /dev/v4l/by-id/)
+#VIDEO_MATCH="usb-MACROSILICON_*-video-index0"
+
+# Fonte de áudio da placa: começo do nome  (veja com: pactl list sources short)
+#AUDIO_MATCH="alsa_input.usb-MACROSILICON"
+
+# Formato pedido à placa  (veja com: ffmpeg -f v4l2 -list_formats all -i /dev/video0)
+#VIDEO_SIZE="1920x1080"
+#VIDEO_FPS="60"
+#VIDEO_FORMAT="yuyv422"   # yuyv422 precisa de USB 3; em USB 2 use mjpeg
+
+#AUDIO_LATENCY_MS="20"
+
+# 1 = remove quadros repetidos antes do frame gen (jogo a 30 numa saída de 60). 0 = desliga.
+#DEDUP="1"
