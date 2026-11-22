@@ -5,9 +5,9 @@ Jogue o PS5 (ou outro console) pela placa de captura no **Linux**, com **frame g
 > **EN:** One-command console capture viewer for Linux: mpv (Vulkan, low-latency, duplicate-frame removal) + [lsfg-vk](https://lsfg-vk.dev) frame generation (Lossless Scaling) + PipeWire audio loopback + a KDE window rule. Turns a 30 fps console game into 120 fps on screen.
 
 ```
-console ──HDMI──▶ placa USB 3 ──▶ mpv (Vulkan, --untimed) ──▶ mpdecimate ──▶ lsfg-vk x4 ──▶ tela 120 Hz
-  60 Hz                │           sem buffer, 1 quadro       60 → 30 únicos   30 → 120
-                       └── áudio ──▶ pw-loopback (20 ms) ──▶ saída padrão
+console ──HDMI 60 Hz──▶ placa USB 3 ──30 fps──▶ mpv (Vulkan, --untimed) ──▶ lsfg-vk x4 ──▶ tela 120 Hz
+                            │                  + drain.lua (esvazia fila)    30 → 120
+                            └── áudio ──▶ pw-loopback (20 ms) ──▶ saída padrão
 ```
 
 ## O que precisa
@@ -52,7 +52,7 @@ ps5 fg 2|3|4   muda o multiplicador (jogo a 30: 60, 90 ou 120 fps)
 ps5 status     mostra o que está rodando
 ```
 
-Teclas na janela: **q** fecha, **3** tira os quadros duplicados (é o padrão) e **6** mostra tudo que a placa entrega.
+Na janela, **q** fecha. Para depurar, `PS5_LOG=/tmp/ps5.log ps5` grava o log do mpv, incluindo o que o vigia de fila fez.
 
 Se a sua placa não for MacroSilicon, ajuste `~/.config/ps5-capture/config`. Veja os nomes com `ls /dev/v4l/by-id/` e `pactl list sources short`.
 
@@ -64,7 +64,9 @@ Cada item abaixo resolveu um problema que foi **medido**, não suposto.
 |---|---|---|
 | Placa negociando **USB 2.0**, mesmo em porta azul | imagem ruim; YUYV 1080p60 não cabe em 480 Mbps | ligar direto numa porta USB 3 e conferir com `lsusb -t` (tem que aparecer `5000M`) |
 | mpv tratando a captura como vídeo comum | **atraso crescente** (o buffer foi de 0,48 s a 0,75 s em 8 s) e trancos | `--untimed --cache=no --demuxer-readahead-secs=0`: o buffer cai para 1 quadro (~17 ms) |
-| Jogo a **30 fps** numa saída de **60 Hz** | cada quadro chega 2 vezes, e o frame gen "interpola" entre quadros iguais | `mpdecimate`: 242 de 249 intervalos ficaram em exatamente 2 quadros, ~30 únicos/s, mantendo a 1ª cópia (menos atraso que o `framestep`) |
+| Jogo a **30 fps** numa saída de **60 Hz** | cada quadro chega 2 vezes, e o frame gen "interpola" entre quadros iguais | pedir **30 fps à placa** (`VIDEO_FPS=30`): 149 de 150 quadros vêm únicos |
+| lsfg-vk em V-Sync **bloqueia**: em x4 a 120 Hz o mpv consome exatamente 30 quadros/s | no menu do PS5 (60 únicos) a fila chegou a **~1 s**. Como depois entra o mesmo tanto que sai, **a fila nunca esvazia**, e já começa com ~0,9 s porque o mpv demora para iniciar | entrada fixa de 30 (x4 = 120 Hz) e **`drain.lua`**: mede o atraso real (o horário dos quadros é o relógio monotônico do kernel) e, quando passa de 80 ms, descarta quadros até esvaziar. Resultado: **~48 ms estável**, e uma fila forçada some em ~1,5 s |
+| Tentativa: lsfg-vk em mailbox, sem bloquear | atraso caiu para 26 ms, **mas o jogo parecia 30 fps**, porque os quadros gerados eram descartados | descartada: FIFO + `drain.lua` |
 | `Lossless.dll` do branch normal da Steam | `Unable to find base shader 'mipmaps' in DLL` | branch **`lsfg-vk`** → `lsfg-vk.dll` |
 | Áudio dentro do mpv | o modo `--untimed` não sincroniza som | `pw-loopback` da entrada da placa para a saída padrão, com 20 ms |
 | Frame gen ligado em todo mpv | a camada Vulkan é implícita (carrega em qualquer app) | perfil ativado só por `LSFGVK_PROFILE`, que apenas o `ps5` define |
@@ -79,6 +81,8 @@ Benchmark do lsfg-vk numa RTX 2060, 1080p com x4: **806 fps de saída** (`lsfg-v
 - Partindo de 30 fps, aparecem **artefatos** em movimento rápido, em volta do personagem e no HUD. O `ps5 fg 2` gera menos artefato, mas só chega a 60.
 - **O DLSS não funciona aqui.** Ele precisa de dados do motor do jogo (vetores de movimento, profundidade), que não existem num vídeo capturado. O frame gen do Lossless Scaling trabalha só com a imagem.
 - O FPS que realmente chega à tela não foi medido com contador. Para conferir, use MangoHud ou similar.
+- Os ~48 ms medidos são só o caminho **dentro do PC** (da captura até o mpv). Não incluem o atraso da placa, o do frame gen depois do mpv nem o do monitor.
+- A conta precisa fechar: **`VIDEO_FPS` × multiplicador = Hz do monitor**. Jogo a 60 fps? Use `VIDEO_FPS=60` e `ps5 fg 2`. Monitor de 144 Hz não fecha com 30; deixe o monitor em 120 Hz.
 
 ## Créditos e licenças
 

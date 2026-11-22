@@ -100,6 +100,7 @@ echo "== Comando ps5"
 mkdir -p "$BIN" "$CFG/ps5-capture"
 install -m 755 "$REPO/bin/ps5" "$BIN/ps5"
 install -m 644 "$REPO/config/input.conf" "$CFG/ps5-capture/input.conf"
+install -m 644 "$REPO/config/drain.lua" "$CFG/ps5-capture/drain.lua"
 [ -f "$CFG/ps5-capture/config" ] || install -m 644 "$REPO/config/config.example" "$CFG/ps5-capture/config"
 ok "$BIN/ps5"
 case ":$PATH:" in *":$BIN:"*) ;; *) aviso "$BIN não está no PATH; abra um terminal novo ou adicione ao seu shell";; esac

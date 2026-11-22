@@ -9,10 +9,10 @@
 
 # Formato pedido à placa  (veja com: ffmpeg -f v4l2 -list_formats all -i /dev/video0)
 #VIDEO_SIZE="1920x1080"
-#VIDEO_FPS="60"
+#VIDEO_FPS="30"   # quadros únicos do jogo. Regra: VIDEO_FPS x multiplier = Hz do monitor
 #VIDEO_FORMAT="yuyv422"   # yuyv422 precisa de USB 3; em USB 2 use mjpeg
 
 #AUDIO_LATENCY_MS="20"
 
-# 1 = remove quadros repetidos antes do frame gen (jogo a 30 numa saída de 60). 0 = desliga.
-#DEDUP="1"
+# Filtro extra de vídeo do mpv (ex.: "lavfi=[mpdecimate]"). Padrão: nenhum.
+#INPUT_FILTER=""
